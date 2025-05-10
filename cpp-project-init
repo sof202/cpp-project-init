@@ -1,0 +1,158 @@
+#!/bin/bash
+
+project_name=$1
+if [[ -z "${project_name}" ]]; then
+    project_name="project_name"
+fi
+
+echo "Files/directories will be written to ${PWD}, is this ok? (y/n)"
+read -r continue
+
+if [[ "${continue}" != "y" ]]; then
+    exit 0
+fi
+
+# -----------------
+# Project structure
+# -----------------
+git init
+mkdir src
+
+# -----------------
+# Build system
+# -----------------
+cat >> Makefile << EOF
+BUILD_DIR ?= build
+CMAKE_INSTALL_PREFIX ?= /usr/local
+
+# Detect number of processor cores
+NPROC := \$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+
+CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=\$(CMAKE_BUILD_TYPE)
+CMAKE_EXTRA_FLAGS ?=
+
+# Only append INSTALL_PREFIX if it's not already in EXTRA_FLAGS
+ifneq (,\$(findstring -DCMAKE_INSTALL_PREFIX,\$(CMAKE_EXTRA_FLAGS)))
+  # It's already there, don't add it
+else
+  override CMAKE_EXTRA_FLAGS += -DCMAKE_INSTALL_PREFIX=\$(CMAKE_INSTALL_PREFIX)
+endif
+
+all: build
+
+configure:
+	@echo "Configuring CMake in '\$(BUILD_DIR)'..."
+	@echo "Installation prefix: \$(CMAKE_INSTALL_PREFIX)"
+	@mkdir -p \$(BUILD_DIR) && \
+	 cd \$(BUILD_DIR) && \
+	 cmake \$(CMAKE_FLAGS) \$(CMAKE_EXTRA_FLAGS) ..
+
+build: configure
+	@cmake --build \$(BUILD_DIR) --parallel \$(NPROC)
+
+.PHONY: all configure build
+EOF
+
+cat >> CMakeLists.txt << EOF
+cmake_minimum_required(VERSION 3.17)
+project(${project_name})
+
+# ------------------
+# Options
+# ------------------
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY \${CMAKE_BINARY_DIR}/bin)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+endif()
+
+add_compile_definitions(BUILD_TYPE="\${CMAKE_BUILD_TYPE}")
+
+# ------------------
+# Git
+# ------------------
+if(NOT PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
+  # Auto-create a .gitignore in the specified "build" directory.
+  file(GENERATE OUTPUT .gitignore CONTENT "*")
+endif()
+
+# ------------------
+# Build
+# ------------------
+add_executable(
+    ${project_name}
+    src/main.cpp
+)
+target_include_directories(
+    ${project_name}
+    PUBLIC
+        src/
+)
+EOF
+
+# -----------------
+# clangd
+# -----------------
+cat >> .clangd << EOF
+CompileFlags:
+  CompilationDatabase: build
+Diagnostics:
+  ClangTidy:
+    Add: [
+      clang-analyzer-*,
+      modernize-*,
+      bugprone-*,
+      performance-*,
+      cppcoreguidelines-*,
+      readability-*
+    ]
+    Remove: [
+      readability-braces-around-statements,
+      bugprone-easily-swappable-parameters
+    ]
+    CheckOptions:
+      readability-identifier-naming.ClassCase: CamelCase
+      readability-identifier-naming.StructCase: CamelCase
+      readability-identifier-naming.EnumCase: CamelCase
+      readability-identifier-naming.EnumConstantCase: camelBack
+      readability-identifier-naming.FunctionCase: camelBack
+      readability-identifier-naming.VariableCase: lower_case
+      readability-identifier-naming.NamespaceCase: CamelCase
+      readability-identifier-naming.TypedefCase: CamelCase
+      readability-identifier-naming.TypeAliasCase: CamelCase
+      readability-identifier-naming.PrivateMemberCase: lower_case
+      readability-identifier-naming.PrivateMemberPrefix: m_
+EOF
+
+cat >> .clang-format << EOF
+---
+BasedOnStyle: Google
+ColumnLimit: '79'
+Language: Cpp
+PointerAlignment: Left
+TabWidth: '3'
+IndentWidth: '3'
+BinPackArguments: false
+BinPackParameters: false
+AllowAllConstructorInitializersOnNextLine: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+BreakConstructorInitializers: AfterColon
+
+...
+EOF
+
+
+# -----------------
+# Entry point
+# -----------------
+cat >> src/main.cpp << EOF
+#include <iostream>
+
+int main() {
+    std::cout << "${project_name}";
+    return 0;
+}
+EOF
