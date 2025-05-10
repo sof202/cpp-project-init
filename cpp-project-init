@@ -165,7 +165,7 @@ cat >> src/main.cpp << EOF
 #include <iostream>
 
 auto main() -> int {
-    std::cout << "${project_name}";
+    std::cout << "${project_name}\n";
     return 0;
 }
 EOF
