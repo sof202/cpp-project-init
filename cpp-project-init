@@ -50,7 +50,10 @@ configure:
 build: configure
 	@cmake --build \$(BUILD_DIR) --parallel \$(NPROC)
 
-.PHONY: all configure build
+install:
+	@cmake --install \$(BUILD_DIR)
+
+.PHONY: all configure build install
 EOF
 
 cat >> CMakeLists.txt << EOF
@@ -90,6 +93,13 @@ target_include_directories(
     ${project_name}
     PUBLIC
         src/
+)
+
+# ------------------
+# Install
+# ------------------
+install(TARGETS ${project_name}
+RUNTIME DESTINATION bin
 )
 EOF
 
